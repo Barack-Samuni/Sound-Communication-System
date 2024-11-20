@@ -1,0 +1,8 @@
+# Ignore all folders containing "venv" in their names and their contents
+**/*venv*/
+
+# Ignore all folders named .idea and their contents
+**/.idea/
+
+# Ignore all __pycache__ folders and their contents
+**/__pycache__/
