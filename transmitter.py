@@ -95,7 +95,7 @@ def modulate_message(text, output_file, lowcut=400, highcut=1200, duration=0.1, 
         wf.setframerate(sample_rate)
         wf.writeframes((filtered_signal * 32767).astype(np.int16).tobytes())
 
-    print(f"The modulates sound saved to {output_file}")
+    print(f"The modulated sound saved to {output_file}")
 
 def play_audio(audio_file):
     """
