@@ -18,7 +18,7 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     low = lowcut / nyquist      # Normalization
     high = highcut / nyquist    # Normalization
     b, a = butter(order, [low, high], btype='band')
-    return b, a         # b - denominator a - nominator
+    return b, a         # b - numerator a - denominator
 
 def apply_bandpass_filter(data, lowcut, highcut, fs, order=5):
     """
