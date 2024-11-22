@@ -1,8 +1,7 @@
-from scipy.signal import find_peaks
 import numpy as np
-from transmitter import butter_bandpass, apply_bandpass_filter
 import wave
 import pyaudio
+from shared_utils import *
 
 
 def hamming_decode(data):
@@ -30,88 +29,123 @@ def hamming_decode(data):
         decoded.extend(decoded_block)
     return ''.join(map(str, decoded))
 
-def record_audio(output_file, record_seconds=5, sample_rate=44100):
+
+def decode_message_with_hamming(binary_data):
+    """
+    This function decodes a message with hamming and also checks for start and end barkers
+    :param binary_data: data to decode
+    :return: decoded message as text or original binary data
+    """
+    messsage_start_index = binary_data.find(START_BARKER)
+    messsage_end_index = binary_data.find(END_BARKER)
+
+    if messsage_start_index != -1:  # start barker was found:
+        print(f"Start barker detected at index {messsage_start_index}")
+
+    if messsage_end_index != -1:
+        print(f"End barker detected at index {messsage_end_index}")
+
+    # check if start and end barkers are present in the data:
+    if messsage_start_index == -1 or messsage_end_index == -1 or messsage_end_index <= messsage_start_index:
+        return None, binary_data
+
+    # Decode the message between the barkers
+    hamming_data = binary_data[messsage_start_index + len(START_BARKER):messsage_end_index]
+    decoded_data = hamming_decode(hamming_data)
+    message = "".join(chr(int(decoded_data[i:i + 8], 2)) for i in range(0, len(decoded_data), 8))
+    return message, ""  # still return a tuple for consistency
+
+def record_audio_and_process_message(output_file,sample_rate=44100, chunk_size=1024, duration=0.1):
     """
     records an audio via microphone and saves it as .wav file
-    :param output_file: path to save the .wav file
-    :param record_seconds: the length of the record
+    :param chunk_size: size of chunk in bits
+    :param duration: duration of tone in seconds
     :param sample_rate: sampling rate
+    :param output_file: path to output .wav file
     :return:
     """
-    chunk = 1024
-    format = pyaudio.paInt16
+
+    format_of_audio = pyaudio.paInt16
     channels = 1
 
     p = pyaudio.PyAudio()
-    stream = p.open(format=format, channels=channels, rate=sample_rate,frames_per_buffer=chunk, input=True)
-    print("Recording...")
+    stream = p.open(format=format_of_audio, channels=channels, rate=sample_rate, frames_per_buffer=chunk_size, input=True)
+    print("Listening for start barker...")
 
     frames = []
-    for _ in range(0, int(sample_rate / chunk * record_seconds)):    # number of samples
-        data = stream.read(chunk)
-        frames.append(data)
-    print("Recording complete.")
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
+    binary_data = ""
+    try:
+        while True:
+            # Record and buffer
+            data = stream.read(chunk_size)
+            frames.append(data)
 
+            # keep buffer manageable
+            if len(frames) > 2 * sample_rate // chunk_size:
+                frames = frames[-2 * sample_rate // chunk_size:]
+
+            # process buffer
+            signal = np.frombuffer(b''.join(frames), dtype=np.int16).astype(np.float32) / 32767.0
+            binary_data += demodulate_message(signal=signal, duration=duration, sample_rate=sample_rate)
+
+            # check for start and end barker and decode message
+            message , binary_data = decode_message_with_hamming(binary_data=binary_data)
+            if message:
+                print(f"Decoded message: {message}")
+                break
+    finally:
+        print("Recording stopped...")
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+
+
+    # save recorded audio to file
+    print(f"saving recorded audio to {output_file}")
     with wave.open(output_file, 'wb') as wf:
         wf.setnchannels(channels)
-        wf.setsampwidth(p.get_sample_size(format))
+        wf.setsampwidth(p.get_sample_size(format_of_audio))
         wf.setframerate(sample_rate)
         wf.writeframes(b''.join(frames))
+    print("Audio was saved successfully.")
 
 
-def demodulate_message(audio_file, lowcut=400, highcut=1200, sample_rate=44100, duration=0.1):
+def demodulate_message(signal, duration=0.1, sample_rate=44100, freq_0=500, freq_1=1000):
     """
     This function demodulates the audio back to text
-    :param audio_file: audio file to read the recording from
-    :param lowcut: lower cutoff frequency
-    :param highcut: upper cutoff frequency
-    :param sample_rate: sampling frequency
-    :param duration: duration of tone
-    :return: demodulated text
+    :param signal: audio signal
+    :param duration: duration of tone in seconds
+    :param sample_rate: sampling rate
+    :param freq_0: frequency of 0
+    :param freq_1: frequency of 1
+    :return: demodulated binary data
     """
-    with wave.open(audio_file, 'rb') as wf:
-        frames = wf.readframes(wf.getnframes())
-        signal = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32767.0
+    step = int(duration * sample_rate)  # number of samples per segment
+    binary_data = ""
+    margin = 20
 
-    # Apply filtering on the signal
-    filtered_signal = apply_bandpass_filter(signal, lowcut, highcut, sample_rate)
-    step = int(duration * sample_rate)
-    binary_data_with_hamming = ""
+    for i in range(0, len(signal), step):
+        segment = signal[i:i+step]
 
-    for i in range(0, len(filtered_signal), step):
-        segment = filtered_signal[i:i+step]
-        fft = np.abs(np.fft.fft(segment))[:step // 2]
-        freqs = np.fft.fftfreq(len(segment), 1 / sample_rate)[:step // 2]
+        if len(segment) < step: # skip incomplete segment
+            continue
 
-        # Detect dominant frequency (which should represent the bit)
-        peak_indices, _ = find_peaks(fft, height=0.1)
-        peak_freqs = freqs[peak_indices]
-        freq_0 = 500        # frequency for '0'
-        freq_1 = 1000       # frequency for '1'
-        margin = 50         # margin for detecting the bit
+        # Apply filters
+        segment_0 = apply_bandpass_filter(data=segment, lowcut=freq_0 - margin, highcut=freq_0 + margin, fs=sample_rate)
+        segment_1 = apply_bandpass_filter(data=segment, lowcut=freq_1 - margin, highcut=freq_1 + margin, fs=sample_rate)
 
-        if any(abs(f - freq_0) < margin for f in peak_freqs):  # this bit is close to '0'
-            binary_data_with_hamming += "0"
+        # Calculate energies
+        energy_0 = np.sum(segment_0 ** 2)
+        energy_1 = np.sum(segment_1 ** 2)
 
-        elif any(abs(f - freq_1) < margin for f in peak_freqs):
-            binary_data_with_hamming += "1"
+        # Choose the bit based on higher energy
+        binary_data += "0" if energy_0 > energy_1 else "1"
 
-    # decode the hamming data
-    binary_data = hamming_decode(binary_data_with_hamming)
-    print(f"Decoded binary data: {binary_data}")
+    return binary_data
 
-    # convert the binary data back to text
-    text = ''.join(chr(int(binary_data[i:i+8], 2)) for i in range(0, len(binary_data), 8)) # convert binary to int first
-    return text
 
 # Example usage
 if __name__ == "__main__":
-    recorded_file = "decoded_My_name_is_barack.wav"
-    record_audio(recorded_file, record_seconds=30)
-    decoded_text = demodulate_message(recorded_file)
-    print(f"Decoded text: {decoded_text}")
+    record_audio_and_process_message("my_name_is_Barack_decoded.wav")
 
 
