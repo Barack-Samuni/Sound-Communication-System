@@ -3,12 +3,13 @@ import pyaudio
 from shared_utils import *
 import  keyboard
 import wave
+from shared_utils import hamming_decode
 
 CHUNK_SIZE = 4410  # Number of samples for one bit (0.1s at 44100 Hz)
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
-THRESHOLD = 0.2
+THRESHOLD = 0.7
 
 
 def parse_bit(bit_segment, sample_rate=44100, bit_duration=0.1, threshold=0.5):
@@ -41,7 +42,8 @@ def parse_bit(bit_segment, sample_rate=44100, bit_duration=0.1, threshold=0.5):
             print(f"Bit parsed as '0' with correlation: {np.mean(correlation):.2f}")
             return '0'
         else:
-            print(f"Failed to parse '0'. Correlation: {np.mean(correlation):.2f}")
+            pass
+            # print(f"Failed to parse '0'. Correlation: {np.mean(correlation):.2f}")
     else:
         # Likely bit is '1'
         reference_signal = generate_signal("1", freq_0, freq_1, bit_duration, sample_rate)
@@ -50,7 +52,8 @@ def parse_bit(bit_segment, sample_rate=44100, bit_duration=0.1, threshold=0.5):
             print(f"Bit parsed as '1' with correlation: {np.mean(correlation):.2f}")
             return '1'
         else:
-            print(f"Failed to parse '1'. Correlation: {np.mean(correlation):.2f}")
+            pass
+            # print(f"Failed to parse '1'. Correlation: {np.mean(correlation):.2f}")
 
 
     return None
@@ -61,6 +64,7 @@ def continuously_parse_bits():
     Continuously record audio and attempt to parse a bit from each chunk of data.
     Stops when the user presses 'q'.
     """
+    parsed_bits = ""
     p = pyaudio.PyAudio()
     stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK_SIZE)
     print("Listening for bits... Press 'q' to stop.")
@@ -75,6 +79,7 @@ def continuously_parse_bits():
             parsed_bit = parse_bit(signal, sample_rate=RATE, bit_duration=CHUNK_SIZE / RATE, threshold=THRESHOLD)
 
             if parsed_bit is not None:
+                parsed_bits += parsed_bit
                 print(f"Parsed bit: {parsed_bit}")
 
             # Check if 'q' was pressed to quit
@@ -85,6 +90,15 @@ def continuously_parse_bits():
     except KeyboardInterrupt:
         print("Recording stopped by user.")
     finally:
+        print(f"Parsed bits: {parsed_bits}")
+        decoded_bits = hamming_decode(parsed_bits)
+        print(f"decoded parsed bits: {decoded_bits}")
+        decoded_message = ""
+
+        for i in range(0, len(decoded_bits),8):
+            decoded_message += chr(int(decoded_bits[i:i+8],2))
+
+        print(f"Decoded message: {decoded_message}")
         stream.stop_stream()
         stream.close()
         p.terminate()
@@ -127,13 +141,14 @@ def parse_bits_from_wav(wav_file, bit_duration=0.1, sample_rate=44100, threshold
 
 
 if __name__ == "__main__":
-    bits = parse_bits_from_wav('My_name_is_Barack.wav')
-    print(f"bits are: {''.join(bits)}")
-    decoded_bits = hamming_decode(bits)
-    print(f"decoded_bits are: {''.join(decoded_bits)}")
-    decoded_message = ""
-    for i in range(0, len(decoded_bits),8):
-        decoded_message += chr(int(decoded_bits[i:i + 8], 2))
-
-    print(f"decoded_message: {decoded_message}")
+    # bits = parse_bits_from_wav('My_name_is_Barack.wav')
+    # print(f"bits are: {''.join(bits)}")
+    # decoded_bits = hamming_decode(bits)
+    # print(f"decoded_bits are: {''.join(decoded_bits)}")
+    # decoded_message = ""
+    # for i in range(0, len(decoded_bits),8):
+    #     decoded_message += chr(int(decoded_bits[i:i + 8], 2))
+    #
+    # print(f"decoded_message: {decoded_message}")
+    q
 

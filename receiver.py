@@ -51,18 +51,7 @@ def record_audio_and_process_message():
                 rolling_buffer.extend(signal)           # Add new signal data
                 if len(rolling_buffer) > BUFFER_SIZE:   # Truncate if buffer exceeds max size
                     rolling_buffer = rolling_buffer[-BUFFER_SIZE:]
-
-                # Search for start barker
-                hamming_start_barker = hamming_encode(START_BARKER)
-                barker_signal = generate_signal(bits=hamming_start_barker, freq_0=FREQ_0, freq_1=FREQ_1,
-                                                duration=BIT_DURATION, sample_rate=RATE)
-                correlation = normalized_cross_correlation(signal, barker_signal)
-
-                if np.mean(correlation) > THRESHOLD:
-                    start_index = np.argmax(np.correlate(rolling_buffer, barker_signal, mode="valid"))
-                    print(f"Start barker detected at index {start_index} with correlation {correlation:.2f}")
-                    rolling_buffer = rolling_buffer[start_index:]   # Align to time=0
-                    binary_data = ""                                # Reset binary data
+                    start_barker_found = False
 
                     # Parse bits
                     while len(rolling_buffer) >= BIT_SAMPLES:
@@ -70,8 +59,8 @@ def record_audio_and_process_message():
                         rolling_buffer = rolling_buffer[BIT_SAMPLES:]   # shift buffer
 
                         # Bandpass filtering
-                        filtered_0 = apply_bandpass_filter(bit_segment, FREQ_0 - MARGIN, FREQ_0 + MARGIN, RATE)
-                        filtered_1 = apply_bandpass_filter(bit_segment, FREQ_1 - MARGIN, FREQ_1 + MARGIN, RATE)
+                        filtered_0 = apply_bandpass_filter(bit_segment, FREQ_0 - MARGIN, FREQ_0 + MARGIN, RATE, order=2)
+                        filtered_1 = apply_bandpass_filter(bit_segment, FREQ_1 - MARGIN, FREQ_1 + MARGIN, RATE, order=2)
                         energy_0 = np.sum(filtered_0 ** 2)
                         energy_1 = np.sum(filtered_1 ** 2)
 
@@ -80,7 +69,7 @@ def record_audio_and_process_message():
                             reference_signal = generate_signal(bits="0",freq_0=FREQ_0,
                                                                freq_1=FREQ_1,duration=BIT_DURATION,sample_rate=RATE)
                             correlation = normalized_cross_correlation(filtered_0, reference_signal)
-                            if np.mean(correlation) > THRESHOLD:
+                            if np.abs(np.mean(correlation)) > THRESHOLD:
                                 binary_data += "0"
 
                             else:
@@ -91,12 +80,32 @@ def record_audio_and_process_message():
                                                                duration=BIT_DURATION,sample_rate=RATE)
                             correlation = normalized_cross_correlation(filtered_1, reference_signal)
 
-                            if np.mean(correlation) > THRESHOLD:
+                            if np.abs(np.mean(correlation)) > THRESHOLD:
                                 binary_data += "1"
 
                             else:
                                 print("Failed to parse bit. Requesting retransmission.")
                                 break
+
+                        # Search for start barker
+                        hamming_start_barker = hamming_encode(START_BARKER)
+
+                        if len(rolling_buffer) < len(hamming_start_barker) and not start_barker_found:
+                            continue
+
+                        elif len(rolling_buffer) >= len(hamming_start_barker) and not start_barker_found:
+                            barker_signal = generate_signal(bits=hamming_start_barker, freq_0=FREQ_0, freq_1=FREQ_1,
+                                                            duration=BIT_DURATION, sample_rate=RATE)
+                            received_barker = rolling_buffer[:len(hamming_start_barker)]
+                            correlation = normalized_cross_correlation(received_barker, barker_signal)
+
+                            if np.abs(np.mean(correlation)) > THRESHOLD:
+                                start_index = np.argmax(np.correlate(received_barker, barker_signal, mode="valid"))
+                                print(f"Start barker detected at index {start_index} with correlation {correlation:.2f}")
+                                rolling_buffer = rolling_buffer[start_index:]  # Align to time=0
+                                binary_data = ""  # Reset binary data
+                                start_barker_found = True
+
                         # Parse packets
                         if len(binary_data) >= PACKET_SIZE:
                             packet = binary_data[:PACKET_SIZE]
