@@ -68,7 +68,7 @@ def modulate_message(text, output_file, lowcut=480, highcut=1020, duration=0.1, 
         wf.setnchannels(1)  # Mono
         wf.setsampwidth(2)  # 16-bit PCM
         wf.setframerate(sample_rate)
-        wf.writeframes((filtered_signal * 32767).astype(np.int16).tobytes())
+        wf.writeframes((filtered_signal * 32767.0).astype(np.int16).tobytes())
 
     return  normalized_signal
 
