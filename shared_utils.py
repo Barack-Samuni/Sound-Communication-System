@@ -72,14 +72,19 @@ def hamming_encode(data_bits):
         [1, 1, 0, 1, 0, 0, 1],
     ], dtype=int)
 
-    # convert the input data bits into a row vector
-    block = np.array([int(bit) for bit in data_bits])
+    encoded_bits = ""
 
-    # perform matrix multiplication and apply modulo-2 (parity checking)
-    encoded = (np.dot(G.T, block) % 2).flatten()
+    for i in range(0, len(data_bits), 4):   # 4 bits at the time
 
-    # Convert the result into a binary string
-    return "".join(map(str, encoded))
+        # convert the input data bits into a row vector
+        block = np.array([int(bit) for bit in data_bits[i:i+4].rjust(4,'0')])  # pad to 4 bits
+
+        # perform matrix multiplication and apply modulo-2 (parity checking)
+        encoded = (np.dot(G.T, block) % 2).flatten()
+
+        # Convert the result into a binary string
+        encoded_bits += "".join(map(str, encoded))
+    return encoded_bits
 
 def hamming_decode(encoded_bits):
     """
@@ -101,7 +106,7 @@ def hamming_decode(encoded_bits):
     ])
     decoded_bits = ""
     for i in range(0, len(encoded_bits), 7):    # convert 7 bits to 4 bits
-        block = np.array([int(bit) for bit in encoded_bits[i:i+7]])
+        block = np.array([int(bit) for bit in encoded_bits[i:i+7].rjust(7,'0')])    # pad to 7 bits
         syndrome = np.dot(H, block) % 2   # make the multiplication valid since block a column vector
         if np.any(syndrome):    # Error detected (syndrome != 0)
             error_index = int("".join(map(str, syndrome[::-1])), 2) - 1
