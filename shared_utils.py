@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.signal import butter, lfilter
+from scipy.signal import correlate
 
 
 # barker_codes
@@ -116,6 +117,33 @@ def hamming_decode(encoded_bits):
         bits_string = map(str, map(str, np.dot(R, block) % 2))
         decoded_bits+= "".join(bits_string)
     return decoded_bits
+
+def normalize_signal(signal):
+    """
+    Normalize the signal to range [-1, 1].
+    :param signal: signal to be normalized
+    :return: signal after normalization
+    """
+    max_val = np.max(np.abs(signal))
+
+    if max_val > 0:
+        return signal / max_val
+
+    return signal
+
+def normalized_cross_correlation(signal, barker_signal):
+    """
+    This function computes the normal cross correlation between two signals.
+    :param signal: recorded signal
+    :param barker_signal: barker referenced signal
+    :return: normalized cross correlation
+    """
+    correlation = correlate(signal, barker_signal, mode='valid')
+    norm_factor = np.sqrt(np.sum(signal ** 2) * np.sum(barker_signal ** 2)) # multiplication of the two energy norms
+
+    if norm_factor > 0:
+        return np.max(correlation) / norm_factor
+    return np.max(correlation)
 
 #   check hamming decode and decode
 if __name__ == "__main__":

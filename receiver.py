@@ -1,240 +1,129 @@
 import numpy as np
-import wave
 import pyaudio
+import wave
+import keyboard
 from shared_utils import *
-from scipy.signal import correlate
 
-def normalize_signal(signal):
+
+CHUNK_SIZE = 1024
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+RATE = 44100
+BIT_DURATION = 0.1                                          # Duration od each bit in seconds
+BIT_SAMPLES = int(RATE * BIT_DURATION)                      # Number of samples per bit
+PACKET_SIZE = 14                                            # Number of bits in a packet
+PACKET_SAMPLES = PACKET_SIZE * BIT_SAMPLES
+THRESHOLD = 0.5                                             # Cross-correlation threshold
+BUFFER_SIZE = PACKET_SAMPLES                                # Rolling buffer size
+OUTPUT_FILE_NAME = "my_name_is_barack_recorded.wav"
+FREQ_0 =  500                                               # frequency for '0'
+FREQ_1 = 1000                                               # frequency for '1'
+MARGIN = 20                                                 # margin for bandwidth of the filter
+
+
+def record_audio_and_process_message():
     """
-    Normalize the signal to range [-1, 1].
-    :param signal: signal to be normalized
-    :return: signal after normalization
-    """
-    max_val = np.max(np.abs(signal))
-
-    if max_val > 0:
-        return signal / max_val
-
-    return signal
-
-def normalized_cross_correlation(signal, barker_signal):
-    """
-    This function computes the normal cross correlation between two signals.
-    :param signal: recorded signal
-    :param barker_signal: barker referenced signal
-    :return: normalized cross correlation
-    """
-    correlation = correlate(signal, barker_signal, mode='valid')
-    norm_factor = np.sqrt(np.sum(signal ** 2) * np.sum(barker_signal ** 2)) # multiplication of the two energy norms
-
-    if norm_factor > 0:
-        return correlation / norm_factor
-    return correlation
-
-
-
-def generate_barker_signal(barker, freq_0=500, freq_1=1000, duration=0.1, sample_rate=44100):
-    """
-    generate a reference signal for the barker. We will use it to cross-correlate with the recorded signal and align it
-    :param barker: the barker code to modulate
-    :param freq_0: frequency for '0'
-    :param freq_1: frequency for '1'
-    :param duration: duration of tone
-    :param sample_rate: sampling rate
-    :return: barker as a signal
-    """
-    signal = []
-    for bit in barker:
-        freq = freq_1 if bit == '1' else freq_0
-        t = np.linspace(0, duration, int(sample_rate * duration) , endpoint=False)
-        tone = np.sin(2 * np.pi * freq * t)
-        signal.extend(tone)
-
-    # Normalize the barker reference signal
-    signal = np.array(signal, dtype=np.float32)
-    return signal / np.max(np.abs(signal))  # Scale to [-1, 1]
-
-
-def align_to_start_barker(signal, barker_signal,chunk_size, sample_rate, threshold=0.8):
-    """
-    Use chunkwise cross correlation to align the received signal to the start barker
-    :param signal: received signal
-    :param barker_signal: reference barker signal
-    :param chunk_size: chunk size for cross-correlation
-    :param sample_rate: sampling rate
-    :param threshold: threshold for cross-correlation
-    :return: aligned signal
-    """
-    barker_length = len(barker_signal)
-    num_samples = chunk_size + barker_length - 1    # sliding window size
-    start_index = None
-
-    # process signal in sliding windows
-    for i in range(0, len(signal) - num_samples, chunk_size):
-        chunk = signal[i:i + num_samples]
-        normalized_chunk = normalize_signal(chunk)
-        cross_corr = normalized_cross_correlation(normalized_chunk, barker_signal)
-
-        # check if correlation exceeds the threshold
-        if np.max(cross_corr) > threshold:
-            start_index = i + np.argmax(cross_corr)
-            print(f"Start barker detected at index {start_index}")
-            break
-
-    return start_index
-
-
-def hamming_decode(data):
-    """
-    As our transmitted message was hamming encoded, we need to decode it.
-    :param data: encoded data that needs to be decoded
-    :return: The decoded data
-    """
-    H = np.array([
-        [1, 1, 1, 0, 1, 0, 0],
-        [1, 1, 0, 1, 0 ,1, 0],
-        [1, 0, 1, 1, 0, 0, 1],
-    ])
-
-    decoded = []
-    for i in range(0, len(data), 7):   # 7 bit code block
-        block = np.array(list(map(int, data[i:i+7].ljust(7,'0'))))  # 7 bit padding
-        syndrome = np.dot(H, block) % 2
-
-        if np.any(syndrome):    # syndrome != 0 means that there's an error in thr given index
-            error_position = int(''.join(map(str,syndrome[::-1])),2) - 1
-            block[error_position] = ~block[error_position]  # flip the bit
-
-        decoded_block = block[:4]   # remove parity bits
-        decoded.extend(decoded_block)
-    return ''.join(map(str, decoded))
-
-
-def decode_message_with_hamming(binary_data):
-    """
-    This function decodes a message with hamming and also checks for start and end barkers
-    :param binary_data: data to decode
-    :return: decoded message as text or original binary data
-    """
-    messsage_start_index = binary_data.find(START_BARKER)
-    messsage_end_index = binary_data.find(END_BARKER)
-
-    if messsage_start_index != -1:  # start barker was found:
-        print(f"Start barker detected at index {messsage_start_index}")
-
-    if messsage_end_index != -1:
-        print(f"End barker detected at index {messsage_end_index}")
-
-    # check if start and end barkers are present in the data:
-    if messsage_start_index == -1 or messsage_end_index == -1 or messsage_end_index <= messsage_start_index:
-        return None, binary_data
-
-    # Decode the message between the barkers
-    hamming_data = binary_data[messsage_start_index + len(START_BARKER):messsage_end_index]
-    decoded_data = hamming_decode(hamming_data)
-    message = "".join(chr(int(decoded_data[i:i + 8], 2)) for i in range(0, len(decoded_data), 8))
-    return message, ""  # still return a tuple for consistency
-
-def record_audio_and_process_message(output_file,sample_rate=44100, chunk_size=1024, duration=0.1):
-    """
-    records an audio via microphone and saves it as .wav file
-    :param chunk_size: size of chunk in bits
-    :param duration: duration of tone in seconds
-    :param sample_rate: sampling rate
-    :param output_file: path to output .wav file
+    records an audio and tries to parse a message, and saves it to a .wav file
     :return:
     """
-
-    format_of_audio = pyaudio.paInt16
-    channels = 1
-
     p = pyaudio.PyAudio()
-    stream = p.open(format=format_of_audio, channels=channels, rate=sample_rate, frames_per_buffer=chunk_size, input=True)
-    print("Listening for start barker...")
+    stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK_SIZE)
+    print("Listening for transmissions... Press 'q' to stop.")
 
-    frames = []
-    binary_data = ""
+    rolling_buffer = []     # initialize an empty buffer
+    binary_data = ""        # Parsed bits
+    decoded_message = ""    # Final decoded message
 
-    # Generate a reference start barker signal
-    barker_signal = generate_barker_signal(barker=START_BARKER, duration=duration, sample_rate=sample_rate)
+    # prepare to save recorded audio
+    with wave.open(OUTPUT_FILE_NAME, "wb") as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(p.get_sample_size(FORMAT))
+        wf.setframerate(RATE)
 
-    try:
-        while True:
-            # Read audio data from the stream and append it to the frames list
-            data = stream.read(chunk_size)
-            frames.append(data)
+        try:
+            while not keyboard.is_pressed("q"):
+                # Read audio data
+                data = stream.read(CHUNK_SIZE, exception_on_overflow=False)
+                wf.writeframes(data)
+                signal = normalize_signal(np.frombuffer(data, dtype=np.int16).astype(np.float32))
 
-            # keep buffer manageable
-            signal = np.frombuffer(b''.join(frames), dtype=np.int16).astype(np.float32) / 32767.0
-            normalized_signal = normalize_signal(signal)
+                # Update rolling buffer
+                rolling_buffer.extend(signal)           # Add new signal data
+                if len(rolling_buffer) > BUFFER_SIZE:   # Truncate if buffer exceeds max size
+                    rolling_buffer = rolling_buffer[-BUFFER_SIZE:]
 
-            # check for alignment
-            start_index = align_to_start_barker(normalized_signal, barker_signal, chunk_size, sample_rate)
-            if start_index is not None:
-                print(f"ALigned signal starting at index {start_index}")
-                aligned_signal = normalized_signal[start_index:]
+                # Search for start barker
+                hamming_start_barker = hamming_encode(START_BARKER)
+                barker_signal = generate_signal(bits=hamming_start_barker, freq_0=FREQ_0, freq_1=FREQ_1,
+                                                duration=BIT_DURATION, sample_rate=RATE)
+                correlation = normalized_cross_correlation(signal, barker_signal)
 
-                # Demodulate and decode
-                binary_data += demodulate_message(signal=aligned_signal, duration=duration, sample_rate=sample_rate)
+                if correlation > THRESHOLD:
+                    start_index = np.argmax(np.correlate(rolling_buffer, barker_signal, mode="valid"))
+                    print(f"Start barker detected at index {start_index} with correlation {correlation:.2f}")
+                    rolling_buffer = rolling_buffer[start_index:]   # Align to time=0
+                    binary_data = ""                                # Reset binary data
 
-                # check for start and end barker and decode message
-                message , binary_data = decode_message_with_hamming(binary_data=binary_data)
-                if message:
-                    print(f"Decoded message: {message}")
-                    break
-    finally:
-        print("Recording stopped...")
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
+                    # Parse bits
+                    while len(rolling_buffer) >= BIT_SAMPLES:
+                        bit_segment = rolling_buffer[:BIT_SAMPLES]
+                        rolling_buffer = rolling_buffer[BIT_SAMPLES:]   # shift buffer
 
+                        # Bandpass filtering
+                        filtered_0 = apply_bandpass_filter(bit_segment, FREQ_0 - MARGIN, FREQ_0 + MARGIN, RATE)
+                        filtered_1 = apply_bandpass_filter(bit_segment, FREQ_1 - MARGIN, FREQ_1 + MARGIN, RATE)
+                        energy_0 = np.sum(filtered_0 ** 2)
+                        energy_1 = np.sum(filtered_1 ** 2)
 
-    # save recorded audio to file
-    print(f"saving recorded audio to {output_file}")
-    with wave.open(output_file, 'wb') as wf:
-        wf.setnchannels(channels)
-        wf.setsampwidth(p.get_sample_size(format_of_audio))
-        wf.setframerate(sample_rate)
-        wf.writeframes(b''.join(frames))
-    print("Audio was saved successfully.")
+                        # Detect bit
+                        if energy_0 > energy_1:
+                            reference_signal = generate_signal(bits="0",freq_0=FREQ_0,
+                                                               freq_1=FREQ_1,duration=BIT_DURATION,sample_rate=RATE)
+                            correlation = normalized_cross_correlation(filtered_0, reference_signal)
+                            if correlation > THRESHOLD:
+                                binary_data += "0"
 
+                            else:
+                                print("Failed to parse bit. Requesting retransmission.")
+                                break
+                        else:
+                            reference_signal = generate_signal(bits="1",freq_0=FREQ_0,freq_1=FREQ_1,
+                                                               duration=BIT_DURATION,sample_rate=RATE)
+                            correlation = normalized_cross_correlation(filtered_1, reference_signal)
 
-def demodulate_message(signal, duration=0.1, sample_rate=44100, freq_0=500, freq_1=1000):
-    """
-    This function demodulates the audio back to text
-    :param signal: audio signal
-    :param duration: duration of tone in seconds
-    :param sample_rate: sampling rate
-    :param freq_0: frequency of 0
-    :param freq_1: frequency of 1
-    :return: demodulated binary data
-    """
-    step = int(duration * sample_rate)  # number of samples per segment
-    binary_data = ""
-    margin = 20
+                            if correlation > THRESHOLD:
+                                binary_data += "1"
 
-    for i in range(0, len(signal), step):
-        segment = signal[i:i+step]
+                            else:
+                                print("Failed to parse bit. Requesting retransmission.")
+                                break
+                        # Parse packets
+                        if len(binary_data) >= PACKET_SIZE:
+                            packet = binary_data[:PACKET_SIZE]
+                            binary_data = binary_data[PACKET_SIZE:] # Remove parsed packets
+                            decoded_packet = hamming_decode(packet)
 
-        if len(segment) < step: # skip incomplete segment
-            continue
+                            if decoded_packet == START_BARKER:
+                                print("Synchronized with start barker.")
 
-        # Apply filters
-        segment_0 = apply_bandpass_filter(data=segment, lowcut=freq_0 - margin, highcut=freq_0 + margin, fs=sample_rate)
-        segment_1 = apply_bandpass_filter(data=segment, lowcut=freq_1 - margin, highcut=freq_1 + margin, fs=sample_rate)
+                            elif decoded_packet == END_BARKER:
+                                print("End barker detected. Message conplete.")
+                                print(f"Decoded message: {decoded_message}")
+                                decoded_message = ""
+                                break
 
-        # Calculate energies
-        energy_0 = np.sum(segment_0 ** 2)
-        energy_1 = np.sum(segment_1 ** 2)
+                            else:
+                                decoded_message += chr(int(decoded_packet, 2))
+        except KeyboardInterrupt:
+            print("Recording stopped by user.")
 
-        # Choose the bit based on higher energy
-        binary_data += "0" if energy_0 > energy_1 else "1"
+        finally:
+            print(f"Recording saved to {OUTPUT_FILE_NAME}")
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
 
-    return binary_data
-
-
-# Example usage
 if __name__ == "__main__":
-    record_audio_and_process_message("my_name_is_Barack_decoded.wav")
+    record_audio_and_process_message()
 
 
