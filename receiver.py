@@ -58,7 +58,7 @@ def record_audio_and_process_message():
                                                 duration=BIT_DURATION, sample_rate=RATE)
                 correlation = normalized_cross_correlation(signal, barker_signal)
 
-                if correlation > THRESHOLD:
+                if np.mean(correlation) > THRESHOLD:
                     start_index = np.argmax(np.correlate(rolling_buffer, barker_signal, mode="valid"))
                     print(f"Start barker detected at index {start_index} with correlation {correlation:.2f}")
                     rolling_buffer = rolling_buffer[start_index:]   # Align to time=0
@@ -80,7 +80,7 @@ def record_audio_and_process_message():
                             reference_signal = generate_signal(bits="0",freq_0=FREQ_0,
                                                                freq_1=FREQ_1,duration=BIT_DURATION,sample_rate=RATE)
                             correlation = normalized_cross_correlation(filtered_0, reference_signal)
-                            if correlation > THRESHOLD:
+                            if np.mean(correlation) > THRESHOLD:
                                 binary_data += "0"
 
                             else:
@@ -91,7 +91,7 @@ def record_audio_and_process_message():
                                                                duration=BIT_DURATION,sample_rate=RATE)
                             correlation = normalized_cross_correlation(filtered_1, reference_signal)
 
-                            if correlation > THRESHOLD:
+                            if np.mean(correlation) > THRESHOLD:
                                 binary_data += "1"
 
                             else:

@@ -142,8 +142,8 @@ def normalized_cross_correlation(signal, barker_signal):
     norm_factor = np.sqrt(np.sum(signal ** 2) * np.sum(barker_signal ** 2)) # multiplication of the two energy norms
 
     if norm_factor > 0:
-        return np.max(correlation) / norm_factor
-    return np.max(correlation)
+        return correlation / norm_factor
+    return correlation
 
 #   check hamming decode and decode
 if __name__ == "__main__":
