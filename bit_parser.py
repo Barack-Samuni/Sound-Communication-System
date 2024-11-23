@@ -150,5 +150,5 @@ if __name__ == "__main__":
     #     decoded_message += chr(int(decoded_bits[i:i + 8], 2))
     #
     # print(f"decoded_message: {decoded_message}")
-    q
+    continuously_parse_bits()
 
