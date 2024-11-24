@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, lfilter, cheby1 , cheby2, filtfilt
 from scipy.signal import correlate
 
 
@@ -35,6 +35,40 @@ def apply_bandpass_filter(data, lowcut, highcut, fs, order=5):
     """
     b, a = butter_bandpass(lowcut, highcut, fs, order=order)
     return lfilter(b, a, data)
+
+
+# noinspection PyTupleAssignmentBalance
+def apply_chebyshev_filter(signal, lowcut, highcut, fs, order=5, ripple=0.5, filter_type='cheby1'):
+    """
+    Apply a Chebyshev bandpass filter (Type I or II).
+
+    :param signal: Input signal to filter.
+    :param lowcut: Lower cutoff frequency in Hz.
+    :param highcut: Upper cutoff frequency in Hz.
+    :param fs: Sampling rate in Hz.
+    :param order: Filter order (default=5).
+    :param ripple: Passband ripple in dB (for Type I) or stopband attenuation in dB (for Type II).
+    :param filter_type: 'cheby1' for Type I or 'cheby2' for Type II (default is the cheby1 filter for noise suppression).
+    :return: Filtered signal.
+    """
+    nyquist = 0.5 * fs
+    low = lowcut / nyquist
+    high = highcut / nyquist
+
+    # Ensure cutoff frequencies are valid
+    if not (0 < low < 1 and 0 < high < 1):
+        raise ValueError("Cutoff frequencies must be between 0 and Nyquist frequency.")
+
+    # Design the Chebyshev filter
+    if filter_type == 'cheby1':
+        b, a = cheby1(order, ripple, [low, high], btype='band')
+    elif filter_type == 'cheby2':
+        b, a = cheby2(order, ripple, [low, high], btype='band')
+    else:
+        raise ValueError("Invalid filter_type. Use 'cheby1' or 'cheby2'.")
+
+    # Apply zero-phase filtering
+    return filtfilt(b, a, signal)
 
 
 def generate_signal(bits, freq_0=500, freq_1=1000, duration=0.1, sample_rate = 44100):

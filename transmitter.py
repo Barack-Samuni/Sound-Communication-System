@@ -34,7 +34,8 @@ def modulate_message(text, output_file, lowcut=480, highcut=1020, duration=0.1, 
         signal.extend(tone)
 
     signal = np.array(signal, dtype=np.float32)
-    filtered_signal = apply_bandpass_filter(signal, lowcut, highcut, sample_rate, order=5)  # filter the data
+    # filtered_signal = apply_bandpass_filter(signal, lowcut, highcut, sample_rate, order=5)  # filter the data
+    filtered_signal = apply_filter(signal, lowcut, highcut)
 
     # Normalize the signal
     normalized_signal = filtered_signal / np.max(np.abs(filtered_signal))
