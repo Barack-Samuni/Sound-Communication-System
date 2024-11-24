@@ -6,3 +6,6 @@
 
 # Ignore all __pycache__ folders and their contents
 **/__pycache__/
+
+# ignore .wav files
+*.wav
