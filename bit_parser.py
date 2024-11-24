@@ -141,7 +141,7 @@ def parse_bits_from_wav(wav_file, bit_duration=0.1, sample_rate=44100, threshold
 
 
 if __name__ == "__main__":
-    # bits = parse_bits_from_wav('My_name_is_Barack.wav')
+    # bits = parse_bits_from_wav('test.wav')
     # print(f"bits are: {''.join(bits)}")
     # decoded_bits = hamming_decode(bits)
     # print(f"decoded_bits are: {''.join(decoded_bits)}")

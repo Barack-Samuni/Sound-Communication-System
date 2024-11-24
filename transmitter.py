@@ -68,7 +68,7 @@ def play_audio(signal, sample_rate=44100):
 
 # Example Usage
 if __name__ == "__main__":
-    message = 'My name is Barack'
-    output_file = 'My_name_is_Barack.wav'
+    message = 'test'
+    output_file = 'test.wav'
     signal = modulate_message(text=message,output_file=output_file)
     play_audio(signal=signal)

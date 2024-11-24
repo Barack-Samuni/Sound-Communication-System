@@ -13,7 +13,7 @@ BIT_DURATION = 0.1                                          # Duration od each b
 BIT_SAMPLES = int(RATE * BIT_DURATION)                      # Number of samples per bit
 PACKET_SIZE = 14                                            # Number of bits in a packet
 PACKET_SAMPLES = PACKET_SIZE * BIT_SAMPLES
-THRESHOLD = 0.5                                             # Cross-correlation threshold
+THRESHOLD = 0.8                                             # Cross-correlation threshold
 BUFFER_SIZE = PACKET_SAMPLES                                # Rolling buffer size
 OUTPUT_FILE_NAME = "my_name_is_barack_recorded.wav"
 FREQ_0 =  500                                               # frequency for '0'
@@ -71,6 +71,7 @@ def record_audio_and_process_message():
                             correlation = normalized_cross_correlation(filtered_0, reference_signal)
                             if np.abs(np.mean(correlation)) > THRESHOLD:
                                 binary_data += "0"
+                                print(f"Parsed '0' with correlation of {np.mean(correlation)}:.2f")
 
                             else:
                                 print("Failed to parse bit. Requesting retransmission.")
@@ -82,6 +83,7 @@ def record_audio_and_process_message():
 
                             if np.abs(np.mean(correlation)) > THRESHOLD:
                                 binary_data += "1"
+                                print(f"Parsed '1' with correlation of {np.mean(correlation):.2f}")
 
                             else:
                                 print("Failed to parse bit. Requesting retransmission.")
@@ -90,21 +92,26 @@ def record_audio_and_process_message():
                         # Search for start barker
                         hamming_start_barker = hamming_encode(START_BARKER)
 
-                        if len(rolling_buffer) < len(hamming_start_barker) and not start_barker_found:
+                        if len(binary_data) < len(hamming_start_barker) and not start_barker_found:
                             continue
 
-                        elif len(rolling_buffer) >= len(hamming_start_barker) and not start_barker_found:
+                        elif len(binary_data) >= len(hamming_start_barker) and not start_barker_found:
                             barker_signal = generate_signal(bits=hamming_start_barker, freq_0=FREQ_0, freq_1=FREQ_1,
                                                             duration=BIT_DURATION, sample_rate=RATE)
-                            received_barker = rolling_buffer[:len(hamming_start_barker)]
-                            correlation = normalized_cross_correlation(received_barker, barker_signal)
+                            received_barker = binary_data[:len(hamming_start_barker)]
+                            received_barker_signal = generate_signal(received_barker, freq_0=FREQ_0, freq_1=FREQ_1,
+                                                                     duration=BIT_DURATION, sample_rate=RATE)
+                            correlation = normalized_cross_correlation(received_barker_signal, barker_signal)
 
                             if np.abs(np.mean(correlation)) > THRESHOLD:
-                                start_index = np.argmax(np.correlate(received_barker, barker_signal, mode="valid"))
-                                print(f"Start barker detected at index {start_index} with correlation {correlation:.2f}")
+                                start_index = np.argmax(np.correlate(received_barker_signal, barker_signal, mode="valid"))
+                                print(f"Start barker detected at index {start_index} with correlation {np.mean(correlation):.2f}")
                                 rolling_buffer = rolling_buffer[start_index:]  # Align to time=0
                                 binary_data = ""  # Reset binary data
                                 start_barker_found = True
+                            else:
+                                print("Failed to parse barker. Requesting retransmission.")
+                                binary_data = ""    # reset binary data
 
                         # Parse packets
                         if len(binary_data) >= PACKET_SIZE:
