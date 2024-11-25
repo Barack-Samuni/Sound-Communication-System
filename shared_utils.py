@@ -71,6 +71,85 @@ def apply_chebyshev_filter(signal, lowcut, highcut, fs, order=5, ripple=0.5, fil
     return filtfilt(b, a, signal)
 
 
+# noinspection PyTupleAssignmentBalance
+def multi_bandpass_filter(signal, bands, fs, order_for_low=5,order_for_high=5,order_for_bandstop=5,
+                          ripple=0.5, filter_type='cheby1'):
+    """
+    Applies a chebyshev bandpass filter (Type I or II) using the cascading of chebyshev highpass filter,
+    bandstopfilters, and a low-pass-filter.
+    and a low pass-filter.
+    :param signal: signal to be filtered
+    :param bands: bands to be filtered. This a matrix, where each row is a band.
+    For example: [[low_0,high_0], [low_1,high_1], ...]
+    :param fs: sampling frequency
+    :param order_for_low: order of LPF (default=5).
+    :param order_for_high: order of HPF (default=5).
+    :param order_for_bandstop: order of bandstop (default=5).
+    :param ripple:
+    :param filter_type:
+    :return:
+    """
+    nyquist = 0.5 * fs
+    high_pass_cutoff = bands[0][0] / nyquist
+    if filter_type == 'cheby1':
+        b , a = cheby1(order_for_high, ripple, high_pass_cutoff, btype='high')
+
+    elif filter_type == 'cheby2':
+        b,a = cheby2(order_for_high, ripple, high_pass_cutoff, btype='high')
+
+    else:
+        raise ValueError("Invalid filter_type. Use 'cheby1' or 'cheby2'.")
+
+    a_total = [a]
+    b_total = [b]
+
+    # number of bands - 1 band-stop filters
+    for i in  range(len(bands) -1):
+        bandstop_low_cutoff = bands[i][1] / nyquist     # start stopping at the end of the current pass band
+        bandstop_high_cutoff = bands[i+1][0] / nyquist  # stop stopping at the start of the next pass band
+
+        if filter_type == 'cheby1':
+            b, a = cheby1(order_for_bandstop, ripple, [bandstop_low_cutoff, bandstop_high_cutoff], btype='bandstop')
+
+        elif filter_type == 'cheby2':
+            b , a = cheby2(order_for_bandstop, ripple, [bandstop_low_cutoff, bandstop_high_cutoff], btype='bandstop')
+
+        else:
+            raise ValueError("Invalid filter_type. Use 'cheby1' or 'cheby2'.")
+
+        a_total.append(a)
+        b_total.append(b)
+
+    # low - pass - filter
+    low_pass_cutoff = bands[-1][1] / nyquist    # last band high frequency
+
+    if filter_type == 'cheby1':
+        b , a = cheby1(order_for_low, ripple, low_pass_cutoff, btype='low')
+
+    elif filter_type == 'cheby2':
+        b, a = cheby2(order_for_low, ripple, low_pass_cutoff, btype='low')
+
+    else:
+        raise ValueError("Invalid filter_type. Use 'cheby1' or 'cheby2'.")
+
+    a_total.append(a)
+    b_total.append(b)
+
+    # combine the filters altogether
+    combined_a = a_total[0]                         # constant of the first filter denominator
+
+    for a in a_total[1:]:
+        combined_a = np.convolve(combined_a, a)     # convolve all the filters together
+
+    combined_b = b_total[0]                         # constant value of the numerator
+
+    for b in b_total[1:]:
+        combined_b = np.convolve(combined_b, b)    # convolve all the filters together
+
+    return combined_b , combined_a
+    # return filtfilt(combined_b , combined_a, signal)
+
+
 def generate_signal(bits, freq_0=500, freq_1=1000, duration=0.1, sample_rate = 44100):
     """
     Generate a normalized audio signal for given bits.
