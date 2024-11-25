@@ -73,7 +73,7 @@ def apply_chebyshev_filter(signal, lowcut, highcut, fs, order=5, ripple=0.5, fil
 
 # noinspection PyTupleAssignmentBalance
 def multi_bandpass_filter(signal, bands, fs, order_for_low=5,order_for_high=5,order_for_bandstop=5,
-                          ripple=0.5, filter_type='cheby1'):
+                          ripple=0.5, filter_type='cheby1', filter=True):
     """
     Applies a chebyshev bandpass filter (Type I or II) using the cascading of chebyshev highpass filter,
     bandstopfilters, and a low-pass-filter.
@@ -146,8 +146,9 @@ def multi_bandpass_filter(signal, bands, fs, order_for_low=5,order_for_high=5,or
     for b in b_total[1:]:
         combined_b = np.convolve(combined_b, b)    # convolve all the filters together
 
-    return combined_b , combined_a
-    # return filtfilt(combined_b , combined_a, signal)
+    if not filter is True:
+        return combined_b , combined_a
+    return filtfilt(combined_b , combined_a, signal)
 
 
 def generate_signal(bits, freq_0=500, freq_1=1000, duration=0.1, sample_rate = 44100):
