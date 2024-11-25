@@ -13,12 +13,12 @@ BIT_DURATION = 0.1                                          # Duration od each b
 BIT_SAMPLES = int(RATE * BIT_DURATION)                      # Number of samples per bit
 PACKET_SIZE = 14                                            # Number of bits in a packet
 PACKET_SAMPLES = PACKET_SIZE * BIT_SAMPLES
-THRESHOLD = 0.8                                             # Cross-correlation threshold
+THRESHOLD = 0.6                                            # Cross-correlation threshold
 BUFFER_SIZE = PACKET_SAMPLES                                # Rolling buffer size
 OUTPUT_FILE_NAME = "my_name_is_barack_recorded.wav"
-FREQ_0 =  500                                               # frequency for '0'
-FREQ_1 = 1000                                               # frequency for '1'
-MARGIN = 20                                                 # margin for bandwidth of the filter
+FREQ_0 =  1000                                               # frequency for '0'
+FREQ_1 = 1500                                               # frequency for '1'
+MARGIN = 50                                                 # margin for bandwidth of the filter
 
 
 def record_audio_and_process_message():
@@ -59,8 +59,8 @@ def record_audio_and_process_message():
                         rolling_buffer = rolling_buffer[BIT_SAMPLES:]   # shift buffer
 
                         # Bandpass filtering
-                        filtered_0 = apply_bandpass_filter(bit_segment, FREQ_0 - MARGIN, FREQ_0 + MARGIN, RATE, order=2)
-                        filtered_1 = apply_bandpass_filter(bit_segment, FREQ_1 - MARGIN, FREQ_1 + MARGIN, RATE, order=2)
+                        filtered_0 = apply_chebyshev_filter(bit_segment, FREQ_0 - MARGIN, FREQ_0 + MARGIN, RATE, order=2)
+                        filtered_1 = apply_chebyshev_filter(bit_segment, FREQ_1 - MARGIN, FREQ_1 + MARGIN, RATE, order=2)
                         energy_0 = np.sum(filtered_0 ** 2)
                         energy_1 = np.sum(filtered_1 ** 2)
 
@@ -68,10 +68,13 @@ def record_audio_and_process_message():
                         if energy_0 > energy_1:
                             reference_signal = generate_signal(bits="0",freq_0=FREQ_0,
                                                                freq_1=FREQ_1,duration=BIT_DURATION,sample_rate=RATE)
-                            correlation = normalized_cross_correlation(filtered_0, reference_signal)
+                            filtered_reference_signal = apply_chebyshev_filter(reference_signal,
+                                                                               FREQ_0 - MARGIN, FREQ_0 + MARGIN, RATE,
+                                                                               order=2)
+                            correlation = normalized_cross_correlation(filtered_0, filtered_reference_signal)
                             if np.abs(np.mean(correlation)) > THRESHOLD:
                                 binary_data += "0"
-                                print(f"Parsed '0' with correlation of {np.mean(correlation)}:.2f")
+                                print(f"Parsed '0' with correlation of {np.mean(correlation):.2f}")
 
                             else:
                                 print("Failed to parse bit. Requesting retransmission.")
@@ -79,7 +82,10 @@ def record_audio_and_process_message():
                         else:
                             reference_signal = generate_signal(bits="1",freq_0=FREQ_0,freq_1=FREQ_1,
                                                                duration=BIT_DURATION,sample_rate=RATE)
-                            correlation = normalized_cross_correlation(filtered_1, reference_signal)
+                            filtered_reference_signal = apply_chebyshev_filter(reference_signal,
+                                                                               FREQ_1 - MARGIN, FREQ_1 + MARGIN, RATE,
+                                                                               order=2)
+                            correlation = normalized_cross_correlation(filtered_1, filtered_reference_signal)
 
                             if np.abs(np.mean(correlation)) > THRESHOLD:
                                 binary_data += "1"
